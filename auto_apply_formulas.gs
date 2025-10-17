@@ -109,7 +109,7 @@ function onOpen() {
   var ui = SpreadsheetApp.getUi();
   ui.createMenu('📈 주식 트래커')
     .addItem('🔄 수동 새로고침', 'manualRefresh')
-    .addItem('⏰ 1분 자동 새로고침 시작', 'startAutoRefresh')
+    .addItem('⏰ 2분 자동 새로고침 시작', 'startAutoRefresh')
     .addItem('⏹ 자동 새로고침 중지', 'stopAutoRefresh')
     .addItem('🔧 오류 수정', 'fixFormulas')
     .addSeparator()
@@ -124,10 +124,17 @@ function manualRefresh() {
   var dataRange = sheet.getRange("B2:F50");
   var formulas = dataRange.getFormulas();
 
-  // 현재 시간을 F1 셀에 표시
+  // 현재 시간을 H1 셀에 표시
   var now = new Date();
   var timeString = Utilities.formatDate(now, Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm:ss");
-  sheet.getRange("F1").setValue("마지막 새로고침: " + timeString);
+  sheet.getRange("H1").setValue("마지막 새로고침: " + timeString);
+
+  // main 시트에만 F1에 환율 헤더, F2에 실제 환율 데이터 설정
+  var mainSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("main");
+  if (mainSheet) {
+    mainSheet.getRange("F1").setValue("환율");
+    mainSheet.getRange("F2").setFormula('=GOOGLEFINANCE("CURRENCY:USDKRW")');
+  }
 
   for (var i = 0; i < formulas.length; i++) {
     for (var j = 0; j < formulas[i].length; j++) {
@@ -179,10 +186,10 @@ function startAutoRefresh() {
   stopAutoRefresh();
   ScriptApp.newTrigger('safeRefresh')
     .timeBased()
-    .everyMinutes(1)
+    .everyMinutes(2)
     .create();
 
-  SpreadsheetApp.getActiveSpreadsheet().toast('⏰ 1분마다 자동 새로고침 시작', '설정 완료', 3);
+  SpreadsheetApp.getActiveSpreadsheet().toast('⏰ 2분마다 자동 새로고침 시작', '설정 완료', 3);
 }
 
 function safeRefresh() {
@@ -190,10 +197,17 @@ function safeRefresh() {
   var dataRange = sheet.getRange("B2:F50");
   var formulas = dataRange.getFormulas();
 
-  // 현재 시간을 F1 셀에 표시
+  // 현재 시간을 H1 셀에 표시
   var now = new Date();
   var timeString = Utilities.formatDate(now, Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm:ss");
-  sheet.getRange("F1").setValue("마지막 새로고침: " + timeString);
+  sheet.getRange("H1").setValue("마지막 새로고침: " + timeString);
+
+  // main 시트에만 F1에 환율 헤더, F2에 실제 환율 데이터 설정
+  var mainSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("main");
+  if (mainSheet) {
+    mainSheet.getRange("F1").setValue("환율");
+    mainSheet.getRange("F2").setFormula('=GOOGLEFINANCE("CURRENCY:USDKRW")');
+  }
 
   for (var i = 0; i < formulas.length; i++) {
     for (var j = 0; j < formulas[i].length; j++) {
