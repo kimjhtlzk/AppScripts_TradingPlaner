@@ -1,0 +1,352 @@
+# 📊 구글 스프레드시트 주식 트래커 최종 버전 (v4.3)
+
+## 🎯 최종 열 구조 (자동 수식 적용)
+| A열 | B열 | C열 | D열 | E열 | F열 |
+|---|---|---|---|---|---|
+| 종목코드/티커 | 종목명/지수명 | 현재가/지수레벨 | 등락률 | 시장구분 | 새로고침 시간 |
+
+**v4.3 주요 변경사항:**
+- **한국 지수 완벽 지원**: 커스텀 함수 `getKRIndexChangeRate()` 추가
+- **안정적 크롤링**: IMPORTXML 중첩 문제 해결
+- **보조 열 불필요**: UrlFetchApp으로 직접 HTML 파싱
+- **지수 지원**: INDEX 카테고리로 해외 주요 지수 조회 가능
+- Apps Script를 통한 자동 수식 적용 기능
+- F1 셀에 마지막 새로고침 시간 자동 표시
+- 통화 서식 자동 적용 (미국: $, 한국: ₩, 지수: 숫자)
+
+## ✅ 완성된 수식 (나스닥 + 한국 주식 + 지수 통합)
+
+### 📝 사용 방법 (v4.3 - 자동 적용)
+
+#### 권장 방법: Apps Script 사용 (auto_apply_formulas.gs)
+1. **A열**: 종목코드 또는 지수 티커 입력
+   - 개별 종목: AAPL, 005930
+   - 해외 지수: .IXIC, .INX, .DJI
+   - 한국 지수: KOSPI, KOSDAQ
+2. **E열**: 시장구분 입력
+   - NASDAQ, KOSPI, KOSDAQ, INDEX, **KR_INDEX**
+3. **Enter** → B, C, D열 수식 자동 생성!
+
+#### 수동 방법: 직접 수식 입력
+1. **A열**: 종목코드 또는 티커 심볼 입력
+   - 한국 주식: `005930` (6자리 숫자)
+   - 나스닥: `AAPL` (알파벳 티커)
+   - 해외 지수: `.IXIC`, `.INX` 등
+   - 한국 지수: `KOSPI`, `KOSDAQ`
+2. **E열**: 시장구분 입력 (필수)
+   - `NASDAQ` / `KOSPI` / `KOSDAQ` / `INDEX` / `KR_INDEX` 중 하나
+3. **B~D열**: 아래 수식 복사하여 붙여넣기
+4. **D열**: 셀 서식을 백분율로 설정
+5. **F1 셀**: "새로고침 시간" 또는 비워두기 (자동 업데이트됨)
+
+---
+
+## 🔧 각 열별 수식
+
+### A2: 종목코드 입력
+```
+예시:
+- 한국 주식: 005930, 035420, 000660
+- 나스닥: AAPL, GOOGL, TSLA, MSFT
+- 해외 지수: .IXIC, .INX, .DJI
+- 한국 지수: KOSPI, KOSDAQ
+```
+
+### B2: 종목명/지수명 (자동 표시)
+```
+=IF(A2="","",IF(E2="KR_INDEX",A2,IF(E2="INDEX",IFERROR(GOOGLEFINANCE(A2,"name"),A2),IF(E2="NASDAQ",IFERROR(GOOGLEFINANCE(A2,"name"),A2),IFERROR(REGEXEXTRACT(IMPORTXML("https://finance.naver.com/item/main.nhn?code="&A2,"//title"),"^([^:]+)"),"")))))
+```
+
+**설명:**
+- A2가 비어있으면 빈 값 반환
+- E2가 "KR_INDEX"이면 A2 값 그대로 표시 (KOSPI, KOSDAQ)
+- E2가 "INDEX"이면 GOOGLEFINANCE로 지수명 가져오기
+- E2가 "NASDAQ"이면 GOOGLEFINANCE 함수로 종목명 가져오기
+- 한국 주식이면 네이버 금융에서 title 태그 추출
+- REGEXEXTRACT로 ":" 이전 부분만 추출 (종목명만)
+
+### C2: 현재가/지수 레벨
+```
+=IF(A2="","",IF(E2="KR_INDEX",IFERROR(VALUE(SUBSTITUTE(SUBSTITUTE(IMPORTXML("https://finance.naver.com/sise/sise_index.naver?code="&A2,"//*[@id='now_value']"),",","")," ","")),"N/A"),IF(E2="INDEX",IFERROR(GOOGLEFINANCE(A2,"price"),"N/A"),IF(E2="NASDAQ",IFERROR(GOOGLEFINANCE(A2,"price"),"N/A"),IFERROR(VALUE(SUBSTITUTE(IMPORTXML("https://finance.naver.com/item/sise.naver?code="&A2,"//strong[@id='_nowVal']"),",","")),"로딩 실패")))))
+```
+
+**설명:**
+- 한국 지수: 네이버 금융 지수 페이지에서 현재값 추출 (`//*[@id='now_value']`)
+- 해외 지수: GOOGLEFINANCE로 지수 레벨 조회
+- 나스닥: GOOGLEFINANCE로 실시간 가격 (최대 20분 지연)
+- 한국 주식: 네이버 금융 시세 페이지에서 현재가 추출
+- VALUE + SUBSTITUTE로 쉼표와 공백 제거 후 숫자 변환
+- 오류시 "N/A" 또는 "로딩 실패" 표시
+
+### D2: 등락률 (숫자값 반환) - v4.3 업데이트
+```
+=IF(A2="","",IF(E2="KR_INDEX",getKRIndexChangeRate(A2),IF(E2="INDEX",IFERROR((GOOGLEFINANCE(A2,"price")-GOOGLEFINANCE(A2,"closeyest"))/GOOGLEFINANCE(A2,"closeyest"),"N/A"),IF(E2="NASDAQ",IFERROR(GOOGLEFINANCE(A2,"changepct")/100,"N/A"),IFERROR(VALUE(SUBSTITUTE(SUBSTITUTE(IMPORTXML("https://finance.naver.com/item/sise.naver?code="&A2,"//strong[@id='_rate']//span"),"%",""),",",""))/100,"로딩 실패")))))
+```
+
+**설명:**
+- **한국 지수 (KR_INDEX)**: 커스텀 함수 `getKRIndexChangeRate(A2)` 사용
+  - UrlFetchApp으로 HTML 직접 가져오기
+  - 정규식으로 등락률 추출: `/<span class="fluc"[^>]*>[\s\S]*?([+-]?[0-9.]+)%/`
+  - IMPORTXML 중첩 함수 호환성 문제 해결
+- 해외 지수: (현재가 - 전일종가) / 전일종가로 등락률 계산
+- 나스닥: GOOGLEFINANCE changepct (1.47 = 1.47%) → **100으로 나누기**
+- 한국 주식: 네이버에서 % 문자열 가져온 후 숫자로 변환
+  1. IMPORTXML로 등락률 텍스트 추출 (예: "+1.23%")
+  2. SUBSTITUTE로 % 기호와 쉼표 제거
+  3. VALUE로 숫자 변환 후 100으로 나누기
+- **중요**: 숫자값 반환 (0.0147 = 1.47%) - 백분율 서식 필수
+
+### 🆕 커스텀 함수: getKRIndexChangeRate() (v4.3 신규)
+
+Apps Script에 다음 함수가 포함되어 있습니다:
+
+```javascript
+/**
+ * 커스텀 함수: 한국 지수 등락률 추출
+ * @param {string} code 지수 코드 (KOSPI, KOSDAQ)
+ * @return {number} 등락률 (소수)
+ */
+function getKRIndexChangeRate(code) {
+  try {
+    var url = "https://finance.naver.com/sise/sise_index.naver?code=" + code;
+    var html = UrlFetchApp.fetch(url).getContentText();
+
+    // change_value_and_rate 부분 찾기
+    var regex = /<span class="fluc"[^>]*>[\s\S]*?([+-]?[0-9.]+)%/;
+    var match = html.match(regex);
+
+    if (match && match[1]) {
+      return parseFloat(match[1]) / 100;
+    }
+
+    return "N/A";
+  } catch (e) {
+    return "N/A";
+  }
+}
+```
+
+**작동 원리:**
+1. UrlFetchApp으로 네이버 금융 HTML 가져오기
+2. 정규식으로 `<span class="fluc">` 안의 등락률 추출
+   - 예: `5.87 -0.68%` → `-0.68` 추출
+3. parseFloat로 숫자 변환 후 100으로 나누기
+   - `-0.68` → `-0.0068`
+4. 백분율 서식 적용 시 `-0.68%`로 표시
+
+**장점:**
+- IMPORTXML과 REGEXEXTRACT 중첩 문제 해결
+- 보조 열 불필요
+- 안정적인 데이터 추출
+- 네이버 금융 페이지 구조 변경에 유연하게 대응
+
+### E2: 시장구분
+```
+드롭다운 또는 직접 입력:
+INDEX / KR_INDEX / NASDAQ / KOSPI / KOSDAQ
+```
+
+**INDEX 카테고리:**
+- 해외 지수 조회용 (GOOGLEFINANCE)
+- 예: .IXIC (나스닥), .INX (S&P 500), .DJI (다우존스)
+
+**KR_INDEX 카테고리 (v4.3 완성):**
+- 한국 지수 조회용 (커스텀 함수로 크롤링)
+- 예: KOSPI (코스피), KOSDAQ (코스닥)
+- UrlFetchApp + 정규식으로 안정적 추출
+
+---
+
+## 🎨 필수 서식 설정
+
+### 📊 D열 (등락률) 백분율 서식 설정 - 매우 중요!
+
+#### 방법 1: 메뉴 사용
+1. **D열 전체 선택** (D 클릭)
+2. **서식** → **숫자** → **백분율**
+3. **소수점 자릿수 설정**:
+   - 기본값 아이콘 옆 화살표 클릭
+   - 소수점 증가 버튼 2번 클릭
+   - 또는 **더보기** → **맞춤 숫자 형식**
+
+#### 방법 2: 맞춤 숫자 형식
+1. **D열 전체 선택**
+2. **서식** → **숫자** → **더보기** → **맞춤 숫자 형식**
+3. **형식 입력**: `0.00%`
+4. **적용** 클릭
+
+#### 결과 예시:
+- 수식 반환값: `0.0123`
+- 화면 표시: `1.23%`
+- 수식 반환값: `-0.0045`
+- 화면 표시: `-0.45%`
+
+### 🎨 조건부 서식 (등락률 색상)
+
+1. **D열 선택**
+2. **서식** → **조건부 서식**
+3. **규칙 추가**:
+
+#### 상승 (빨간색)
+- 조건: **사용자 정의 수식**
+- 값: `=D2>0`
+- 서식: 텍스트 색상 **빨간색** (#EA4335)
+
+#### 하락 (파란색)
+- 조건: **사용자 정의 수식**
+- 값: `=D2<0`
+- 서식: 텍스트 색상 **파란색** (#4285F4)
+
+#### 보합 (검은색)
+- 조건: **사용자 정의 수식**
+- 값: `=D2=0`
+- 서식: 텍스트 색상 **검은색** (#000000)
+
+### 💰 C열 (현재가) 통화 서식 (v4.0 자동 적용)
+
+**자동 적용 (Apps Script 사용시):**
+- 종목코드 입력시 자동으로 통화 서식 적용
+- NASDAQ: `$#,##0.00` (예: $195.42)
+- KOSPI/KOSDAQ: `₩#,##0` (예: ₩71,300)
+- INDEX/KR_INDEX: `#,##0.00` (예: 3,748.89)
+
+**수동 적용:**
+1. **C열 선택**
+2. **서식** → **숫자** → **맞춤 숫자 형식**
+3. NASDAQ: `$#,##0.00` 입력
+4. KOSPI/KOSDAQ: `₩#,##0` 입력
+5. INDEX/KR_INDEX: `#,##0.00` 입력
+
+**일괄 적용:**
+- 메뉴 → **📈 주식 트래커** → **💱 통화 서식 일괄 적용**
+
+---
+
+## 📋 사용 예시
+
+### 입력 데이터:
+| A열 | E열 |
+|---|---|
+| .IXIC | INDEX |
+| KOSPI | KR_INDEX |
+| KOSDAQ | KR_INDEX |
+| AAPL | NASDAQ |
+| 005930 | KOSPI |
+| TSLA | NASDAQ |
+| 035720 | KOSDAQ |
+
+### 결과 (자동 표시):
+| A열 | B열 | C열 | D열 | E열 | F열 |
+|---|---|---|---|---|---|
+| .IXIC | Nasdaq Composite | **22,562.54** | -0.47% | INDEX | 마지막 새로고침: 2025-10-17 14:32:15 |
+| KOSPI | KOSPI | **3,748.89** | 0.01% | KR_INDEX | |
+| KOSDAQ | KOSDAQ | **859.54** | -0.68% | KR_INDEX | |
+| AAPL | Apple Inc. | **$195.42** | 1.23% | NASDAQ | |
+| 005930 | 삼성전자 | **₩71,300** | -0.70% | KOSPI | |
+| TSLA | Tesla, Inc. | **$242.84** | 1.47% | NASDAQ | |
+| 035720 | 카카오 | **₩45,600** | 1.82% | KOSDAQ | |
+
+*F1 셀에만 새로고침 시간이 표시됩니다.*
+*C열은 시장구분(E열)에 따라 자동으로 달러($), 원화(₩), 또는 숫자만 표시*
+
+---
+
+## ⚠️ 주의사항 및 트러블슈팅
+
+### 1. 종목코드 형식
+- **한국 주식**: 6자리 숫자 (앞자리 0 유지)
+  - 텍스트 형식: `'005930`
+  - 또는 셀 서식을 "일반 텍스트"로 설정
+- **나스닥**: 대문자 티커 (AAPL, GOOGL, MSFT)
+- **한국 지수**: 대문자 코드 (KOSPI, KOSDAQ)
+
+### 2. #NAME? 오류
+- **원인**: 자동 새로고침 스크립트 오류
+- **해결**: 메뉴 → "🔧 오류 수정" 클릭
+
+### 3. "로딩 실패" 표시
+- **원인**: IMPORTXML 호출 제한 (50개)
+- **해결**: 종목 수 줄이기 또는 시간 간격 두고 재시도
+
+### 4. 등락률이 소수로 표시
+- **원인**: 셀 서식이 백분율로 설정 안 됨
+- **해결**: D열 선택 → 서식 → 숫자 → 백분율
+
+### 5. 한국 지수 등락률 N/A 표시 (v4.3 신규)
+- **원인**: 커스텀 함수가 로드되지 않음
+- **해결**:
+  1. 스프레드시트 새로고침 (F5)
+  2. 메뉴 → "📝 모든 행에 수식 적용"
+  3. 2-3초 대기 (UrlFetchApp 실행 시간 필요)
+
+### 6. 커스텀 함수 로딩이 느림 (v4.3 신규)
+- **정상**: UrlFetchApp이 HTML을 가져오는 데 1-2초 소요
+- **해결**: Apps Script 실행 제한 (1일 20,000회) 주의
+
+### 7. 데이터 지연
+- **GOOGLEFINANCE**: 최대 20분 지연
+- **네이버 금융**: 실시간 (웹페이지와 동일)
+- **구글 스프레드시트 캐싱**: 15분
+- **커스텀 함수**: 호출 시마다 실시간 데이터
+
+---
+
+## 📊 데이터 소스
+
+### NASDAQ (GOOGLEFINANCE)
+- 실시간 ~ 20분 지연
+- 무료 제공
+- 안정적
+
+### 한국 주식 (네이버 금융)
+- URL: `https://finance.naver.com/item/sise.naver?code=종목코드`
+- 실시간 데이터
+- XPath 선택자:
+  - 종목명: `//title`
+  - 현재가: `//strong[@id='_nowVal']`
+  - 등락률: `//strong[@id='_rate']//span`
+
+### 한국 지수 (네이버 금융 - v4.3)
+- URL: `https://finance.naver.com/sise/sise_index.naver?code=KOSPI`
+- 커스텀 함수 사용
+- 정규식: `/<span class="fluc"[^>]*>[\s\S]*?([+-]?[0-9.]+)%/`
+- HTML 구조:
+  ```html
+  <span class="fluc" id="change_value_and_rate">
+    <span>5.87</span> -0.68%
+  </span>
+  ```
+
+### 해외 지수 (GOOGLEFINANCE)
+- 지수 레벨: `GOOGLEFINANCE(ticker, "price")`
+- 등락률: `(현재가 - 전일종가) / 전일종가`
+- 지원 지수: .IXIC, .INX, .DJI 등
+
+---
+
+## 💡 최종 팁
+
+1. **빠른 복사**: B2:D2 수식 입력 후 아래로 드래그
+2. **E열 드롭다운**: 데이터 검증으로 NASDAQ/KOSPI/KOSDAQ/INDEX/KR_INDEX 선택 목록 만들기
+3. **자동 정렬**: 데이터 → 필터 만들기 → 등락률 기준 정렬
+4. **성능 최적화**: 50개 이하 종목 권장
+5. **커스텀 함수 캐싱**: 한국 지수는 캐시되지 않으므로 호출 빈도 주의
+
+---
+
+## 📝 버전 히스토리
+
+- **v4.3**: 커스텀 함수 `getKRIndexChangeRate()` 추가 (한국 지수 완벽 지원)
+- **v4.2**: KR_INDEX 카테고리 추가 (코스닥 지수 네이버 크롤링)
+- **v4.1**: INDEX 카테고리 추가 (해외 주요 지수 조회 지원)
+- **v4.0**: Apps Script 자동 수식 적용, F1 셀 새로고침 시간 표시, NASDAQ 등락률 수식 수정, 통화 서식 자동 적용
+- **v3.0**: 거래량/시가총액 제거, 심플 버전
+- **v2.1**: sise.naver URL 수정
+- **v2.0**: 종목명 자동 표시 추가
+- **v1.0**: 초기 버전
+
+---
+
+**릴리스 날짜**: 2025-10-17
+**버전**: v4.3
+**주요 변경**: 한국 지수 커스텀 함수 구현 (KOSPI, KOSDAQ)
